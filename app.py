@@ -112,7 +112,7 @@ def clean_text(text):
 
 @st.cache_data
 def load_data_from_pptx(pptx_path):
-    """טעינת נתונים מקובץ PowerPoint"""
+    """טעינת נתונים חכמה מקובץ PowerPoint"""
     if 'fish_data_cache' not in st.session_state:
         data = []
         try:
@@ -123,24 +123,32 @@ def load_data_from_pptx(pptx_path):
                 family_name = None
                 images = []
 
-                # 1. איסוף כל הטקסט בשקופית כדי למצוא שם ומשפחה
+                # 1. איסוף כל הטקסט בשקופית
                 full_text = []
                 for shape in slide.shapes:
                     if hasattr(shape, "text"):
                         full_text.append(shape.text)
 
-                # ניתוח הטקסט
+                # ניתוח הטקסט (החלק המתוקן)
                 slide_text_content = "\n".join(full_text)
                 for line in slide_text_content.split('\n'):
                     clean_line = clean_text(line)
                     if not clean_line: continue
 
+                    # בדיקת עברית (שם הדג)
                     if any("\u0590" <= c <= "\u05EA" for c in clean_line):
-                        if len(clean_line) > 2:
-                            hebrew_name = clean_line
-                    elif re.search(r'[a-zA-Z]', clean_line):
-                        if len(clean_line) > 2 and "source" not in clean_line.lower():
-                            family_name = clean_line
+                        # מנקים ממנו את האנגלית כדי לקבל שם נקי
+                        clean_hebrew = re.sub(r'[a-zA-Z]', '', clean_line).replace(',', '').strip()
+                        if len(clean_hebrew) > 2:
+                            hebrew_name = clean_hebrew
+
+                    # בדיקת אנגלית (משפחה) - באותה שורה או בשורה נפרדת
+                    english_matches = re.findall(r'[a-zA-Z]{3,}', clean_line)  # מחפש מילים באנגלית
+                    if english_matches:
+                        possible_family = " ".join(english_matches)
+                        # מסננים מילים טכניות שלא קשורות
+                        if "source" not in possible_family.lower() and "image" not in possible_family.lower():
+                            family_name = possible_family
 
                 # 2. איסוף כל התמונות בשקופית
                 for shape in slide.shapes:
@@ -153,8 +161,8 @@ def load_data_from_pptx(pptx_path):
                 if hebrew_name and images:
                     data.append({
                         "name": hebrew_name,
-                        "family": family_name if family_name else "Unidentified",
-                        "images": images  # עכשיו זו רשימה של תמונות
+                        "family": family_name if family_name else "לא ידוע",  # ברירת מחדל אם לא נמצא
+                        "images": images
                     })
 
             return data
@@ -276,14 +284,15 @@ def check_answer(user_name_answer, user_family_answer):
 # --- טעינה ---
 init_game()
 
-# שינוי: טוען כעת קובץ PPTX
+# טוען קובץ PPTX
 data = load_data_from_pptx("fish.pptx")
 
 if not data:
     st.warning("לא נמצאו דגים. וודא שהקובץ fish.pptx קיים בתיקייה.")
     st.stop()
 
-all_families = sorted(list(set([d['family'] for d in data])))
+# יצירת רשימת משפחות נקייה מ-None או undefined
+all_families = sorted(list(set([d['family'] for d in data if d['family'] and d['family'] != "לא ידוע"])))
 
 # --- סרגל צד ---
 with st.sidebar:
@@ -293,7 +302,6 @@ with st.sidebar:
         cols = st.columns(2)
         for i, fish in enumerate(st.session_state.aquarium):
             with cols[i % 2]:
-                # מציגים באקווריום את התמונה הראשונה של הדג
                 st.image(fish['images'][0], use_container_width=True)
                 st.caption(f"{fish['name']}")
     else:
@@ -353,7 +361,7 @@ with main_content:
 
         st.markdown('<div class="game-card">', unsafe_allow_html=True)
 
-        # תצוגת התמונות - לולאה שמציגה את כל התמונות שיש לדג (רגילה + מציאות)
+        # תצוגת תמונות
         current_images = st.session_state.current_fish['images']
         num_images = len(current_images)
 
